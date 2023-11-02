@@ -1,6 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using MobileController;
 using MobileController.Models.Data;
+using MobileController.Repositories;
+using MobileController.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -15,6 +17,10 @@ builder.Services.AddDbContext<MyDBContext>(options =>
 {
     options.UseSqlServer(builder.Configuration.GetConnectionString("MyDBContext"));
 });//DB Connection Config.(MSSQL)
+
+// ###Register your repository and service
+builder.Services.AddScoped<IShiftRepository, ShiftRepository>();
+builder.Services.AddScoped<IShiftService, ShiftService>();
 
 var app = builder.Build();
 

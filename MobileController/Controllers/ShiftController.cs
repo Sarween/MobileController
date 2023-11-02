@@ -15,6 +15,7 @@ using Microsoft.EntityFrameworkCore;
 using NuGet.Protocol;
 using static System.Runtime.InteropServices.JavaScript.JSType;
 using System.Security.Policy;
+using MobileController.Services;
 
 // For more information on enabling Web API for empty projects, visit https://go.microsoft.com/fwlink/?LinkID=397860
 
@@ -25,12 +26,12 @@ namespace MobileController.Controllers
     public class ShiftController : ControllerBase
     {
         private readonly MyDBContext _myDBContext;
-        //private readonly ShiftService _shiftService;
+        private readonly IShiftService _shiftService;
 
-        public ShiftController(MyDBContext myDBContext)
+        public ShiftController(MyDBContext myDBContext, IShiftService shiftService)
         {
             _myDBContext = myDBContext;
-            //_shiftService = shiftService;
+            _shiftService = shiftService;
         }
 
         // GET api/<ShiftController>/5
@@ -46,24 +47,24 @@ namespace MobileController.Controllers
         public async Task<IActionResult> GetShifts([FromQuery] int studentId)
         {
 
-            var currentDate = DateTime.UtcNow.AddHours(8).Date;
+            //var currentDate = DateTime.UtcNow.AddHours(8).Date;
 
-            //var studentShifts = await _myDBContext.Shift.Where(s => s.StudentID == studentId).ToListAsync();
+            ////var studentShifts = await _myDBContext.Shift.Where(s => s.StudentID == studentId).ToListAsync();
 
-            //What if the student didnt check in
+            ////What if the student didnt check in
 
-            var studentFutureJobs = await _myDBContext.Shift.Join(
-                _myDBContext.Recruitment,
-                s => s.RecruitmentID,
-                r => r.RecruitmentID,
-                (s, r) => new
-                {
-                    Shift = s,
-                    Recruitment = r
-                })
-                .Where(sr => sr.Shift.StudentID == studentId) //Today check in is still visible       //&& sr.Recruitment.JobShiftDate.Date >= currentDate
-                .OrderBy(sr => sr.Recruitment.JobShiftDate) 
-                .ToListAsync();
+            //var studentFutureJobs = await _myDBContext.Shift.Join(
+            //    _myDBContext.Recruitment,
+            //    s => s.RecruitmentID,
+            //    r => r.RecruitmentID,
+            //    (s, r) => new
+            //    {
+            //        Shift = s,
+            //        Recruitment = r
+            //    })
+            //    .Where(sr => sr.Shift.StudentID == studentId) //Today check in is still visible       //&& sr.Recruitment.JobShiftDate.Date >= currentDate
+            //    .OrderBy(sr => sr.Recruitment.JobShiftDate) 
+            //    .ToListAsync();
 
 
             //var studentJob = (from s in _myDBContext.Shift join r in _myDBContext.Recruitment on s.RecruitmentID equals r.RecruitmentID select new ShiftJoinRecruitment { s.}).ToListAsync();
@@ -87,7 +88,9 @@ namespace MobileController.Controllers
 
 
 
-            return Ok(studentFutureJobs.Select(recruitment => recruitment.Recruitment).ToList());
+            //return Ok(studentFutureJobs.Select(recruitment => recruitment.Recruitment).ToList());
+            var result = await _shiftService.GetFutureShiftByStuID(studentId);
+            return result;
         }
 
         public enum CheckInStatus
