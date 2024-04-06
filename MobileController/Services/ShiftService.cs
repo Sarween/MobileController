@@ -1,8 +1,8 @@
 ﻿using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using MobileController.Data;
 using MobileController.Models;
-using MobileController.Models.Data;
 using MobileController.Repositories;
 using NuGet.Protocol.Core.Types;
 using System.Numerics;
@@ -26,9 +26,12 @@ namespace MobileController.Services
 
             List<Recruitment> futureShifts = new List<Recruitment>();
 
+            var dateTime = DateTime.UtcNow.AddHours(8).Date;
+            var currentDate = DateOnly.FromDateTime(dateTime);
+
             foreach (var shift in eachStudentShiftsRecord)
             {
-                if (shift.JobShiftDate >= DateTime.UtcNow.AddHours(8).Date)
+                if (shift.JobShiftDate >= currentDate)
                 {
                     futureShifts.Add(shift);
                 }

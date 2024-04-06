@@ -1,6 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using MobileController;
-using MobileController.Models.Data;
+using MobileController.Data;
 using MobileController.Repositories;
 using MobileController.Services;
 
@@ -18,6 +18,16 @@ builder.Services.AddDbContext<MyDBContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("MyDBContext"));
 });//DB Connection Config.(MSSQL)
 
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("Cors", p =>
+    {
+        p.AllowAnyOrigin()
+            .AllowAnyHeader()
+            .AllowAnyMethod();
+    });
+});
+
 // ###Register your repository and service
 builder.Services.AddScoped<IShiftRepository, ShiftRepository>();
 builder.Services.AddScoped<IShiftService, ShiftService>();
@@ -31,6 +41,7 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+app.UseCors("Cors");
 
 app.UseAuthorization();
 

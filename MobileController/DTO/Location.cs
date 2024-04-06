@@ -1,4 +1,4 @@
-﻿namespace MobileController.Models
+﻿namespace MobileController.DTO
 {
     public class Location
     {

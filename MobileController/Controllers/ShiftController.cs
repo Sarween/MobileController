@@ -1,7 +1,6 @@
 ﻿using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using MobileController.Models.Data;
 using static System.Net.Mime.MediaTypeNames;
 
 using System;
@@ -10,12 +9,19 @@ using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
 using MobileController.Models;
-using MobileController.Models.Data;
 using Microsoft.EntityFrameworkCore;
 using NuGet.Protocol;
 using static System.Runtime.InteropServices.JavaScript.JSType;
 using System.Security.Policy;
 using MobileController.Services;
+using MobileController.Data;
+using MobileController.DTO;
+using System.Net.Mail;
+using System.Net;
+using System.Net.Mail;
+using NuGet.Protocol.Core.Types;
+using System.Globalization;
+using System.Configuration;
 
 // For more information on enabling Web API for empty projects, visit https://go.microsoft.com/fwlink/?LinkID=397860
 
@@ -47,11 +53,14 @@ namespace MobileController.Controllers
         public async Task<IActionResult> GetShifts([FromQuery] int studentId)
         {
 
-            //var currentDate = DateTime.UtcNow.AddHours(8).Date;
+            //var dateTime = DateTime.UtcNow.AddHours(8).Date;
+            //var currentDate = DateOnly.FromDateTime(dateTime);
 
-            ////var studentShifts = await _myDBContext.Shift.Where(s => s.StudentID == studentId).ToListAsync();
+            //var oriDate = new DateTime(2000, 1, 1, 0, 0, 0, 0);
 
-            ////What if the student didnt check in
+            //////var studentShifts = await _myDBContext.Shift.Where(s => s.StudentID == studentId).ToListAsync();
+
+            //////What if the student didnt check in
 
             //var studentFutureJobs = await _myDBContext.Shift.Join(
             //    _myDBContext.Recruitment,
@@ -61,11 +70,11 @@ namespace MobileController.Controllers
             //    {
             //        Shift = s,
             //        Recruitment = r
-            //    })
-            //    .Where(sr => sr.Shift.StudentID == studentId) //Today check in is still visible       //&& sr.Recruitment.JobShiftDate.Date >= currentDate
-            //    .OrderBy(sr => sr.Recruitment.JobShiftDate) 
+            //    })                                                     // Check if The student has not checked out
+            //    .Where(sr => sr.Shift.StudentID == studentId && sr.Recruitment.JobShiftDate >= currentDate) //Today check in is still visible       //&& sr.Recruitment.JobShiftDate.Date >= currentDate
+            //    .Select(sr => sr.Recruitment)
+            //    .OrderBy(sr => sr.JobShiftDate)
             //    .ToListAsync();
-
 
             //var studentJob = (from s in _myDBContext.Shift join r in _myDBContext.Recruitment on s.RecruitmentID equals r.RecruitmentID select new ShiftJoinRecruitment { s.}).ToListAsync();
 
@@ -89,24 +98,153 @@ namespace MobileController.Controllers
 
 
             //return Ok(studentFutureJobs.Select(recruitment => recruitment.Recruitment).ToList());
-            var result = await _shiftService.GetFutureShiftByStuID(studentId);
-            return result;
+            // Using service
+            //var result = await _shiftService.GetFutureShiftByStuID(studentId);
+            //return Ok(result);
+
+            var dateTime = DateTime.UtcNow.AddHours(8).Date;
+            var currentDate = DateOnly.FromDateTime(dateTime);
+
+            DateTime notCheckOut = new DateTime(2000, 1, 1, 0, 0, 0);
+
+            var eachStudentShiftsRecord = await _myDBContext.Shift.Join(
+                            _myDBContext.Recruitment,
+                            s => s.RecruitmentID,
+                            r => r.RecruitmentID,
+                            (s, r) => new
+                            {
+                                Shift = s,
+                                Recruitment = r
+                            })
+                            .Where(sr => sr.Shift.StudentID == studentId && // Check if The student has not checked out
+                            sr.Recruitment.JobShiftDate >= currentDate &&
+                            sr.Shift.IsCancelled == false &&
+                            sr.Shift.CheckOutTime == notCheckOut
+                           ) //Today check in is still visible       //sr.Shift.CheckOutTime == checkOut
+                            .Select(sr => sr.Recruitment)
+                            .OrderBy(sr => sr.JobShiftDate)
+                            .ToListAsync();
+                            
+
+
+
+            List<Recruitment> futureShifts = new List<Recruitment>();
+
+            foreach (var shift in eachStudentShiftsRecord)
+            {
+                if (shift.JobShiftDate >= currentDate)
+                {
+                    futureShifts.Add(shift);
+                }
+            }
+
+            if (futureShifts.Count > 0)
+            {
+
+                return Ok(futureShifts);
+            }
+            else
+            {
+                return Ok("No shifts left");
+            }
+
+            //return Ok(studentFutureJobs);
         }
 
-        public enum CheckInStatus
+        //Add public holiday.
+        // Admin must register parent email.
+        //Supervisor edit student check in
+        // Supervisor must pass temporary password to student.
+
+        private double getArea(double x1, double y1, double x2, double y2, double x3, double y3)
         {
-            OnTime,         // 0
-            Late,           // 1
-            OutsideBoundary // 2
+            return Math.Abs((x1 * (y2 - y3) + x2 * (y3 - y1) + x3 * (y1 - y2)) / 2.0);
         }
-
 
         // When student press check in
-        [HttpPut("CheckIn")]
-        public async Task<IActionResult> CheckInTimeAsync([FromQuery] int recruitmentId, [FromQuery] int studentId, [FromQuery] Location location)
+        [HttpPut("boundaryTest")]
+        public async Task<IActionResult> testBoundary([FromQuery] double latitude, [FromQuery] double longitude)
         {
-            var latitude = location.latitude;
-            var longitude = location.longitude;
+
+            double x1 = 2.98852; double y1 = 101.50244;
+            double x2 = 2.98852; double y2 = 101.50948;
+            double x3 = 2.98663; double y3 = 101.50365;
+
+            double wholeTriangleArea = Math.Round(getArea(x1, y1, x2, y2, x3, y3), 7);
+            double subTriangle1Area = Math.Round(getArea(latitude, longitude, x1, y1, x2, y2), 7);
+            double subTriangle2Area = Math.Round(getArea(latitude, longitude, x2, y2, x3, y3), 7);
+            double subTriangle3Area = Math.Round(getArea(latitude, longitude, x3, y3, x1, y1), 7);
+
+            double sumSubTriangle = subTriangle1Area + subTriangle2Area + subTriangle3Area;
+
+            System.Diagnostics.Debug.WriteLine(wholeTriangleArea.ToString("0.000000"));
+            System.Diagnostics.Debug.WriteLine(sumSubTriangle.ToString("0.000000"));
+
+            // 
+            if (wholeTriangleArea == sumSubTriangle)
+            {
+                return Ok("Inside");
+            }
+            else
+            {
+                return Ok("Outside");
+            }
+
+        }
+
+        // When student press check in
+        [HttpPut("Approve/{recruitmentId}/{studentId}/{comment}/{rating}/{isOvertime}")]
+        public async Task<IActionResult> Approve(int recruitmentId, int studentId, string comment, int rating, bool isOvertime, [FromQuery] string action, [FromQuery] int duration) //, string checkInTime, string checkOutTime, string comment, int rating
+        {
+
+            var shift = await _myDBContext.Shift.FindAsync(recruitmentId, studentId);
+
+            var recruitment = await _myDBContext.Recruitment.FindAsync(recruitmentId);
+
+            //shift.StaffReview = comment;
+            shift.Rating = rating;
+            shift.IsOvertime = isOvertime;
+            shift.IsAuthorized = true;
+
+
+            if (action.ToLower() == "add")
+            {
+                shift.CheckOutTime = shift.CheckOutTime.AddMinutes(duration);
+                shift.StaffReview = "ADDED " + duration + " minutes | " + comment;
+
+            }
+            else if (action.ToLower() == "deduct")
+            {
+                shift.CheckInTime = shift.CheckInTime.AddMinutes(duration);
+                shift.StaffReview = "DEDUCTED " + duration + " minutes | " + comment;
+            }
+            else if (action.ToLower() == "acknowledge")
+            {
+                TimeOnly timeOnly = recruitment.EndTime;
+                var referenceDate = new DateTime(recruitment.JobShiftDate.Value.Year, recruitment.JobShiftDate.Value.Month, recruitment.JobShiftDate.Value.Day);
+                referenceDate += timeOnly.ToTimeSpan();
+                shift.CheckOutTime = referenceDate;
+                shift.StaffReview = comment;
+            }
+            else if (action.ToLower() == "dismiss")
+            {
+                shift.IsCancelled = true;
+            }
+            else
+            {
+                shift.StaffReview = comment;
+            }
+
+            await _myDBContext.SaveChangesAsync();
+            return Ok(shift);
+        }
+
+            // When student press check in
+            [HttpPut("CheckIn")]
+        public async Task<IActionResult> CheckInTimeAsync([FromQuery] int recruitmentId, [FromQuery] int studentId, [FromQuery] double latitude, [FromQuery] double longitude)
+        {
+            //var latitude = location.latitude;
+            //var longitude = location.longitude;
 
             // Get the Shift object from the database.
 
@@ -115,13 +253,25 @@ namespace MobileController.Controllers
             var recruitment = await _myDBContext.Recruitment.FindAsync(recruitmentId);
 
             var currentTimeStamp = DateTime.UtcNow.AddHours(8);
-            var checkInTime = currentTimeStamp.TimeOfDay;
+            currentTimeStamp = currentTimeStamp.AddTicks(-(currentTimeStamp.Ticks % TimeSpan.TicksPerSecond));
 
-            var shiftEndTime = recruitment.EndTime.TimeOfDay;
-            var shiftStartTime = recruitment.StartTime.TimeOfDay;
+            //var checkInTime = currentTimeStamp.TimeOfDay; 
+            var checkInTime = TimeOnly.FromDateTime(currentTimeStamp); 
+
+            var shiftEndTime = recruitment.EndTime; 
+            var shiftStartTime = recruitment.StartTime;
             var shiftStartTimeplus10mins = shiftStartTime.Add(new TimeSpan(0, 10, 0));
 
-            // Check if checkinTime has already been updated 
+            DateOnly today = DateOnly.FromDateTime(DateTime.Today);
+            // Check if today is the day to check in/////////////////////////////////////////////////////
+            if (recruitment.JobShiftDate != today)
+            {
+                //You have already checked in
+                return BadRequest("Shift is not today");
+            }
+
+
+            // Check if checkinTime has already been updated
             if (shift.CheckInTime != new DateTime(2000, 1, 1, 0, 0, 0, 0))
             {
                 //You have already checked in
@@ -136,29 +286,55 @@ namespace MobileController.Controllers
                 return BadRequest("Too late to check in");
             }
 
-            // Check if the student is within the boundary.
-            if (latitude < 20 || latitude > 40 || longitude < 90 || longitude > 110)
+            double x1 = 2.98852; double y1 = 101.50244;
+            double x2 = 2.98852; double y2 = 101.50948;
+            double x3 = 2.98663; double y3 = 101.50365;
+
+            double wholeTriangleArea = Math.Round(getArea(x1, y1, x2, y2, x3, y3), 7);
+            double subTriangle1Area = Math.Round(getArea(latitude, longitude, x1, y1, x2, y2), 7);
+            double subTriangle2Area = Math.Round(getArea(latitude, longitude, x2, y2, x3, y3), 7);
+            double subTriangle3Area = Math.Round(getArea(latitude, longitude, x3, y3, x1, y1), 7);
+
+            double sumSubTriangle = subTriangle1Area + subTriangle2Area + subTriangle3Area;
+
+            System.Diagnostics.Debug.WriteLine(wholeTriangleArea);
+            System.Diagnostics.Debug.WriteLine(sumSubTriangle);
+
+            // Check if inside triangle PKT Logistics area
+            if (wholeTriangleArea == sumSubTriangle)
             {
-                System.Diagnostics.Debug.WriteLine("You're not at company!");
-                // 10 , 80
-                // The student is not within the boundary.
-                //return new JsonResult(new { CheckInStatus = CheckInStatus.OutsideBoundary, checkInTime });
+                System.Diagnostics.Debug.WriteLine("Inside");
+            }
+            else
+            {
                 return BadRequest("You're not at company");
             }
+            //// Check if the student is within the boundary.
+            //if (latitude < 1 || latitude > 40 || longitude < 90 || longitude > 110)
+            //{
+            //    System.Diagnostics.Debug.WriteLine("You're not at company!");
+            //    // 10 , 80
+            //    // The student is not within the boundary.
+            //    //return new JsonResult(new { CheckInStatus = CheckInStatus.OutsideBoundary, checkInTime });
+            //    return BadRequest("You're not at company");
+            //}
 
+            //30, 100
 
             System.Diagnostics.Debug.WriteLine(shiftStartTime);
 
 
             // Either time is 8.30 -12.30 pm || 2 pm - 6pm || 8.30 - 6pm
 
-    
+
 
             //TimeSpan morningShift = new TimeSpan(8, 30, 0);
             //TimeSpan afternoonShift = new TimeSpan(14, 0, 0);
 
 
+            // Remove check in late 10 mins
 
+            var student = await _myDBContext.Student.FindAsync(studentId);
             // Check if student is late (exceed 10 mins)
             if (checkInTime > shiftStartTimeplus10mins)  //Shift must disappear after shiftEndTime
             {
@@ -168,12 +344,9 @@ namespace MobileController.Controllers
 
                 // Save the Shift object to the database.
                 await _myDBContext.SaveChangesAsync();
-                //return new JsonResult(new { CheckInStatus = CheckInStatus.Late, checkInTime });
-                return Ok(new
-                {
-                    CheckInTime = checkInTime,
-                    IsLate = true
-                });
+
+                checkInEmail(student);
+                return Ok(shift);
             }
 
             System.Diagnostics.Debug.WriteLine("ON TIME");
@@ -184,12 +357,46 @@ namespace MobileController.Controllers
 
             // Save the Shift object to the database.
             await _myDBContext.SaveChangesAsync();
-            //return new JsonResult(new { CheckInStatus = CheckInStatus.OnTime, checkInTime });
-            return Ok(new
+
+            checkInEmail(student);
+            return Ok(shift);
+        }
+
+        private void checkInEmail(Student student)
+        {
+            // Get parent email
+            string toAddress = student.ParentEmail;
+            string fromAddress = student.Email;
+
+            var currentTime = DateTime.Now.ToString("h:mm tt");
+            var subject = "Child Check-in Notification";
+            var body = $@"
+        <p>Dear Parent,</p>
+        <p>Your child has checked in:</p>
+        <p><b>Check-in Time: {currentTime}</b></p>
+        <p>Thank you!</p>
+    ";
+            using (var mailMessage = new MailMessage(fromAddress, toAddress))
             {
-                CheckInTime = checkInTime,
-                IsLate = false
-            });
+                mailMessage.Subject = subject;
+                mailMessage.Body = body;
+                mailMessage.IsBodyHtml = true;
+
+                using (var smtpClient = new SmtpClient("smtp.gmail.com", 587))
+                {
+                    smtpClient.Credentials = new NetworkCredential("srw2799@gmail.com", "curfglljmqstifal");
+                    smtpClient.EnableSsl = true;
+
+                    try
+                    {
+                        smtpClient.Send(mailMessage);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine("Failed to send email: " + ex.Message);
+                    }
+                }
+            }
         }
 
 
@@ -197,18 +404,27 @@ namespace MobileController.Controllers
         [HttpPut("CheckOut")]
         public async Task<IActionResult> CheckOutTimeAsync([FromQuery] int recruitmentId, [FromQuery] int studentId)
         {
+            //DateTime testDateTime = new DateTime(2024, 1, 11, 18, 30, 0, 0, 0); // January 11, 2024, 6:30 PM
+
             var shift = await _myDBContext.Shift.FindAsync(recruitmentId, studentId);
             var recruitment = await _myDBContext.Recruitment.FindAsync(recruitmentId);
+            var student = await _myDBContext.Student.FindAsync(studentId);
 
-            var shiftEndTime = recruitment.EndTime.TimeOfDay;
+            var shiftEndTime = recruitment.EndTime;
             System.Diagnostics.Debug.WriteLine(shiftEndTime);
-            var shiftEndtTimePlus1Hr = shiftEndTime.Add(new TimeSpan(1, 0, 0));
+            var shiftEndtTimePlus1Hr = shiftEndTime.AddHours(1);
             System.Diagnostics.Debug.WriteLine(shiftEndtTimePlus1Hr);
-            var shiftEndTimeMinus10Mins = shiftEndTime.Subtract(new TimeSpan(0, 10, 0));
+            var shiftEndTimeMinus10Mins = shiftEndTime.AddMinutes(-10);
             System.Diagnostics.Debug.WriteLine(shiftEndTimeMinus10Mins);
 
+            /////////////////////////////////////////////////////////////////////////////////////////////////
+            //var currentTimeStamp = DateTime.UtcNow.AddHours(8);
             var currentTimeStamp = DateTime.UtcNow.AddHours(8);
-            var checkOutTime = currentTimeStamp.TimeOfDay;
+            // Adding 9 hours for testing
+            currentTimeStamp = currentTimeStamp.AddHours(9);
+            /////////////////////////////////////////////////////////////////////////////////////////////////
+            currentTimeStamp = currentTimeStamp.AddTicks(-(currentTimeStamp.Ticks % TimeSpan.TicksPerSecond));
+            var checkOutTime = TimeOnly.FromDateTime(currentTimeStamp);
 
             // Checkout before check in
             if (shift.CheckInTime == new DateTime(2000, 1, 1, 0, 0, 0, 0))
@@ -223,17 +439,17 @@ namespace MobileController.Controllers
                 //You have already checked checked out
                 return BadRequest("You have already checked out");
             }
-
+            ////////////////////////////////////////////////////////////////////////////
             // Check if check out more than 10 mins early 
-            if (checkOutTime < shiftEndTimeMinus10Mins)
-            {
-                return BadRequest("You cannot check out early");
-            }
-
+            //if (checkOutTime < shiftEndTimeMinus10Mins)
+            //{
+            //    return BadRequest("You cannot check out early");
+            //}
+            ///////////////////////////////////////////////////////////////////////////
             // Check if student overtime
             if (checkOutTime >= shiftEndtTimePlus1Hr)  //Shift must disappear after shiftEndTime
             {
-                System.Diagnostics.Debug.WriteLine("Overtime!");
+                System.Diagnostics.Debug.WriteLine("You have worked overtime");
                 shift.IsOvertime = true;
             }
 
@@ -241,207 +457,92 @@ namespace MobileController.Controllers
 
             // Save the Shift object to the database.
             await _myDBContext.SaveChangesAsync();
-            return Ok(new
-            {
-                CheckOutTime = checkOutTime,
-                Overtime = shift.IsOvertime
-            });
-            //return new JsonResult(new { overtime = shift.IsOvertime, checkOutTime }); 
+
+            checkOutEmail(student);
+            return Ok(shift);
         }
 
-        // When student press get pay worksheet //must check if they check in & check out // check in anytime time before checkin time is reset. // if check out less than 1 hour is reset
-        [HttpGet("GetWorksheet")]
-        public async Task<IActionResult> GetWorksheet([FromQuery] int studentId, [FromQuery] int month, [FromQuery] int year)
+        // When student press check out
+        [HttpPut("Comment")]
+        public async Task<IActionResult> Comment([FromQuery] int recruitmentId, [FromQuery] int studentId, [FromQuery] string comment)
         {
-            // Approach 1
-            //var shifts = await _myDBContext.Shift.Where(s => s.StudentID == studentId && s.CheckInTime.Year == year && s.CheckInTime.Month == month).ToListAsync();
-            // Approaach 2
-            var studentMonthShifts = await _myDBContext.Shift.Join(
-                _myDBContext.Recruitment,
-                s => s.RecruitmentID,
-                r => r.RecruitmentID,
-                (s, r) => new
-                {
-                    Shift = s,
-                    Recruitment = r
-                })
-                .Where(sr => sr.Shift.StudentID == studentId && sr.Shift.CheckInTime.Year == year && sr.Shift.CheckInTime.Month == month) // Add isCheck out //isApproved
-                .OrderBy(sr => sr.Recruitment.JobShiftDate)
-                .ToListAsync();
-
-
-            // Access the StartTime property of the Recruitment object.
-            //var startTime = studentMonthShifts.First().Recruitment.StartTime.TimeOfDay;
-            //System.Diagnostics.Debug.WriteLine(startTimeList);
-
-            //var endTime = studentMonthShifts.First().Recruitment.EndTime.TimeOfDay;
-            //System.Diagnostics.Debug.WriteLine(endTime);
-
-            List<double> shiftWage = new List<double>();
-            List<int> shiftDuration = new List<int>();
-            //TimeSpan totalDuration = TimeSpan.Zero;
-            int totalDuration = 0;
-
-            DateTime ori = new DateTime(2000, 1, 1, 0, 0, 0, 0);
-            TimeSpan duration, start, end;
-
-
-            var jbsbWorksheet = new List<JBSBWorksheet>();
-            List<JBSBWorksheet> studentMonthlyJob = new List<JBSBWorksheet>();  
-
-            //List<object> listofShifts = studentMonthShifts.SelectMany(recruitment => recruitment.Recruitment.JobShiftDate, shift => shift.Shift.CheckInTime, shift => shift.Shift.CheckOutTime, recruitment => recruitment.Recruitment.JobLocation, recruitment => recruitment.Recruitment.StaffID, shift => shift.Shift.IsAuthorized);
-            //var listOfShifts = studentMonthShifts.SelectMany(
-            //    recruitment => 
-            //    new[] { (
-            //    recruitment.Recruitment.RecruitmentID, 
-            //    recruitment.Recruitment.JobShiftDate, 
-            //    recruitment.Shift.CheckInTime, 
-            //    recruitment.Shift.CheckOutTime, 
-            //    recruitment.Recruitment.JobLocation, 
-            //    recruitment.Recruitment.StaffID, 
-            //    recruitment.Shift.IsAuthorized) 
-            //    });
-
-            foreach (var shift in studentMonthShifts)
-            {
-                // Get the start and end time of shift
-                var startTime = shift.Recruitment.StartTime.TimeOfDay ;
-                var endTime = shift.Recruitment.EndTime.TimeOfDay;
-                // Check if student check in and check out
-                if (shift.Shift.CheckInTime == ori || shift.Shift.CheckOutTime == ori)
-                {
-                    continue;
-                }
-
-                // If student check in more than 1 hour or later 
-                if (shift.Shift.CheckInTime.TimeOfDay >= startTime.Add(new TimeSpan(1, 0, 0)))
-                {
-                    start = shift.Shift.CheckInTime.TimeOfDay;
-                }
-                // If student check in early then reset to starttime or late not exceeding 1 hr
-                else
-                {
-                    start = startTime;
-                }
-
-                // If student works overtime (1 hour and above) // Even if student forget to checkout, the admin can reset IsOvertime to prevent overcalculation
-                if (shift.Shift.CheckOutTime.TimeOfDay >= endTime.Add(new TimeSpan(1,0,0)) && shift.Shift.IsOvertime == true)
-                {
-                    end = shift.Shift.CheckOutTime.TimeOfDay;
-                }
-                else
-                {
-                    end = endTime;
-                }
-
-                // end will be default unless exceed 1 hour
-                // start will be dafault unless late 1 hr
-                duration = end - start;
-
-     
-                //Rounding of to hours
-                int hours = duration.Hours;
-
-                // Minus 1 hr for full shift due to break time
-                if (shift.Recruitment.EndTime.TimeOfDay == new TimeSpan(17, 30, 0))
-                {
-                    hours = hours - 1;
-                }
-
-
-                double wage = hours * 8.75;
-
-                shiftWage.Add(wage);
-                shiftDuration.Add(hours);
-
-                totalDuration += hours;
-
-                //if (duration >= new TimeSpan(5, 0, 0))
-                //{
-                //    totalDuration += duration;
-                //}
-
-                System.Diagnostics.Debug.WriteLine(duration);
-                
-                System.Diagnostics.Debug.WriteLine("a" + totalDuration);
-
-
-                //Adding every shift to worksheet
-                var job = new JBSBWorksheet(
-                    shift.Recruitment.JobShiftDate,
-                    shift.Shift.CheckInTime, 
-                    shift.Shift.CheckOutTime, 
-                    hours, 
-                    wage, 
-                    shift.Recruitment.JobLocation, 
-                    shift.Recruitment.StaffID, 
-                    shift.Shift.IsAuthorized);
-
-                studentMonthlyJob.Add(job);
-
-            }
-            var totalPay = Math.Round(totalDuration * 8.75);
-
-
-            //Check if the shift is authorized
-
-            // Get the duration 
-
-            // Return all the shifts.
-            return Ok(new
-            {            
-                studentId,
-                month,
-                year,
-                studentMonthlyJob, // List of shifts in month
-                totalPay = totalPay,
-                totalDuration = totalDuration,
-            });
-            //shiftdates = studentMonthShifts.Select(recruitment => recruitment.Recruitment.JobShiftDate).ToList(),
-            //    shiftCheckInTime = studentMonthShifts.Select(shift => shift.Shift.CheckInTime).ToList(),
-            //    shiftCheckOutTime = studentMonthShifts.Select(shift => shift.Shift.CheckOutTime).ToList(),
-            //    shiftDuration = shiftDuration.ToList(),
-            //    shiftsWage = shiftWage.ToList(),
-            //    jobLocation = studentMonthShifts.Select(recruitment => recruitment.Recruitment.JobLocation).ToList(),
-            //    jobPic = studentMonthShifts.Select(recruitment => recruitment.Recruitment.StaffID).ToList(),
-            //    jobVerification = studentMonthShifts.Select(shift => shift.Shift.IsAuthorized).ToList(),
+            var shift = await _myDBContext.Shift.FindAsync(recruitmentId, studentId);
+            shift.StudentComment = comment;
+            // Save the Shift object to the database.
+            await _myDBContext.SaveChangesAsync();
+            return Ok(shift);
         }
 
 
-
-
-
-        //Get all shift details (Able to show job location, time, descripton and pic)
-        [HttpGet("{studentId}/{month}/{year}/getShiftDetails")]
-        public async Task<IActionResult> GetShiftDetails([FromRoute] int studentId, int month, int year)
+            private void checkOutEmail(Student student)
         {
-            var shifts = await _myDBContext.Shift.Where(s => s.StudentID == studentId && s.CheckInTime.Year == year && s.CheckInTime.Month == month).ToListAsync();
-            List<Recruitment> recruitments = new List<Recruitment>();
-            List<Staff> shiftPICs = new List<Staff>();
+            // Get parent email
+            string toAddress = student.ParentEmail;
+            string fromAddress = student.Email;
 
-            foreach (var shift in shifts)
+            var currentTime = DateTime.Now.ToString("h:mm tt");
+            var subject = "Child Check-out Notification";
+            var body = $@"
+        <p>Dear Parent,</p>
+        <p>Your child has checked out:</p>
+        <p><b>Check-out Time: {currentTime}</b></p>
+        <p>Thank you!</p>
+    ";
+            using (var mailMessage = new MailMessage(fromAddress, toAddress))
             {
-                var recruitmentIDAsString = shift.RecruitmentID.ToString();
-                // For each shift get the recruitment
-                var recruitment = await _myDBContext.Recruitment.FindAsync(recruitmentIDAsString);
+                mailMessage.Subject = subject;
+                mailMessage.Body = body;
+                mailMessage.IsBodyHtml = true;
 
-                if (recruitment != null)
+                using (var smtpClient = new SmtpClient("smtp.gmail.com", 587))
                 {
-                    var shiftPIC = await _myDBContext.Staff.FindAsync(recruitment.StaffID);
-                    recruitments.Add(recruitment);
-                    shiftPICs.Add(shiftPIC);
+                    smtpClient.Credentials = new NetworkCredential("srw2799@gmail.com", "curfglljmqstifal");
+                    smtpClient.EnableSsl = true;
 
+                    try
+                    {
+                        smtpClient.Send(mailMessage);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine("Failed to send email: " + ex.Message);
+                    }
                 }
-
             }
-
-            return Ok(new
-            {
-                shifts,
-                recruitments,
-                shiftPICs
-            });
         }
+
+
+        ////Get all shift details (Able to show job location, time, descripton and pic)
+        //[HttpGet("{studentId}/{month}/{year}/getShiftDetails")]
+        //public async Task<IActionResult> GetShiftDetails([FromRoute] int studentId, int month, int year)
+        //{
+        //    var shifts = await _myDBContext.Shift.Where(s => s.StudentID == studentId && s.CheckInTime.Year == year && s.CheckInTime.Month == month).ToListAsync();
+        //    List<Recruitment> recruitments = new List<Recruitment>();
+        //    List<Staff> shiftPICs = new List<Staff>();
+
+        //    foreach (var shift in shifts)
+        //    {
+        //        var recruitmentIDAsString = shift.RecruitmentID.ToString();
+        //        // For each shift get the recruitment
+        //        var recruitment = await _myDBContext.Recruitment.FindAsync(recruitmentIDAsString);
+
+        //        if (recruitment != null)
+        //        {
+        //            var shiftPIC = await _myDBContext.Staff.FindAsync(recruitment.StaffID);
+        //            recruitments.Add(recruitment);
+        //            shiftPICs.Add(shiftPIC);
+
+        //        }
+
+        //    }
+
+        //    return Ok(new
+        //    {
+        //        shifts,
+        //        recruitments,
+        //        shiftPICs
+        //    });
+        //}
 
 
         //// POST api/<ShiftController>

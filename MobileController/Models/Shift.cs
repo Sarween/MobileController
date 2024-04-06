@@ -22,10 +22,10 @@ namespace MobileController.Models
         public DateTime CheckOutTime { get; set; }
         public bool IsLate { get; set; }
         public bool IsOvertime { get; set; }
-        public string StudentComment { get; set; }
         public string StaffReview { get; set; }
         public int Rating { get; set; }
         public bool IsAuthorized { get; set; }
+        public string StudentComment { get; set; }
 
     }
 }

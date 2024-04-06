@@ -12,6 +12,6 @@ namespace MobileController.Models
         public string StaffName { get; set; }
         public string StaffPassword { get; set; }
         public string StaffEmail { get; set; }
-        public string DepartmentID { get; set; }
+        public int DepartmentID { get; set; }
     }
 }
